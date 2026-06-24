@@ -22,6 +22,9 @@ begin
 	import LinearAlgebra: LinearAlgebra, dot, norm
 end
 
+# ╔═╡ e5ad7124-bfd6-42c5-930b-1cfbeeb8b75c
+PlutoUI.TableOfContents()
+
 # ╔═╡ 75fcb3e1-2319-4427-a9fa-4f3322187d16
 md"""
 # Matrix product states & TEBD
@@ -30,13 +33,7 @@ The previous notebook ended on this: the ground state of the transverse-field Is
 A state with low entanglement is *close to low rank* across each bond — so we should be able to store it, and compute with it, **without ever writing down the full ``2^N`` vector**.
 
 A **matrix product state (MPS)** is exactly such a representation: a chain of small rank-3 tensors.
-This notebook builds it up from scratch and uses it to run **TEBD** (time-evolving block decimation), (hopefully) recovering the same ground-state energy ``E_0`` as the dense solver.
-
-1. **Define & build an MPS** — a train of rank-3 tensors
-2. **Norm & expectation values** — contract the chain against its conjugate
-3. **Apply operators** — single-site, and two-site *gates*
-4. **Gauging improves fidelity** — canonical form makes truncation *optimal*
-5. **TEBD** — imaginary-time evolution to the ground state
+This notebook builds it up from scratch and uses it to run **TEBD** (time-evolving block decimation), (hopefully) recovering the same ground-state energy ``E_0`` as the dense solver — see the table of contents for the outline.
 """
 
 # ╔═╡ 5a4c9d32-422f-4459-ad6b-bee40fe3d6eb
@@ -260,6 +257,11 @@ md"""
 - Given the discussion about contraction order, can you evaluate that the contraction order is **optimal**?
 """
 
+# ╔═╡ d9fccb82-1415-4440-a5cc-e3627dc4680a
+function expval2(ψ::MPS, O, i::Int) # ⟨ψ|Oᵢᵢ₊₁|ψ⟩ / ⟨ψ|ψ⟩
+	error("hands-on")
+end
+
 # ╔═╡ 70ed085f-16bc-47ab-ad8a-eb2a3fc5e933
 md"""
 ## 3. Applying operators
@@ -324,6 +326,14 @@ the optimal gauge of §4.
 function apply_gate2!(ψ::MPS, i, g; trunc = notrunc())
     error("Hands-on: implement apply_gate2!")
 end
+
+# ╔═╡ 7292b323-1bac-4b11-aafd-2b818879224e
+md"""
+Note that you can verify yourself to see whether these definitions are compatible: whenever no truncation is happening we should always have that ``⟨ψ|O|ψ⟩ = ⟨ψ|Oψ⟩``, which can now easily be checked explicitly for both single and twosite gates.
+"""
+
+# ╔═╡ fda2e0a0-6dd6-4684-bb40-99abde77744d
+# verify results here
 
 # ╔═╡ acbfe1d4-847f-4d06-b1df-e3256d5c8e38
 md"""
@@ -441,7 +451,7 @@ end
 
 # ╔═╡ 315e62ff-cc5f-45c9-a3ec-1f051fbc13cf
 gauge_demo = let b = N ÷ 2
-    # depends on the hands-on `apply_gate2!`; return `nothing` until it is implemented
+    # depends on the hands-on `apply_gate2!` and `canonicalize!`; return `nothing` until implemented
     try
         ψ0 = random_mps(N, D)
         G  = -(Z ⊗ Z) - 0.5 * (X ⊗ I + I ⊗ X)   # a generic entangling two-site gate
@@ -449,12 +459,7 @@ gauge_demo = let b = N ÷ 2
         exact    = apply_gate_demo(ψ0, b, G; trunc = notrunc())        # untruncated reference
         ungauged = apply_gate_demo(ψ0, b, G; trunc = truncrank(D))     # truncate the raw state as-is
 
-        for i in 1:b-1                  # left-orthogonalize sites 1..b-1   (centre → b)
-            move_center_right!(ψ0, i)
-        end
-        for i in N:-1:b+1               # right-orthogonalize sites b+1..N  (centre stays at b)
-            move_center_left!(ψ0, i)
-        end
+        canonicalize!(ψ0, b)                                          # bring the centre onto bond b
         gauged = apply_gate_demo(ψ0, b, G; trunc = truncrank(D))       # truncate in mixed-canonical gauge
 
         (; F_ungauged = fidelity(ungauged, exact), F_gauged = fidelity(gauged, exact), F_between = fidelity(ungauged, gauged))
@@ -573,8 +578,8 @@ so every truncation happens in the optimal gauge of §4, with no extra re-canoni
 md"""
 Two pieces are **given**. `bond_hamiltonian(i, N; J, g)` builds the two-site term ``h_{i,i+1}`` with
 each single-site field shared across the bonds it touches, so that ``\sum_i h_{i,i+1} = H`` exactly;
-and `energy(ψ, bond_terms)` measures ``\langle H\rangle = \sum_i \langle h_{i,i+1}\rangle`` by sweeping
-the orthogonality centre through the chain (with the movers above).
+and `energy(ψ, bond_terms)` measures ``\langle H\rangle = \sum_i \langle h_{i,i+1}\rangle`` by summing
+the two-site bond expectation values from `expval2`.
 """
 
 # ╔═╡ fcea497b-96ac-4d12-9363-b879e9e25f4f
@@ -595,26 +600,11 @@ end
 """
     energy(ψ::MPS, bond_terms)
 
-Energy ``\\langle H\\rangle = \\sum_i \\langle h_{i,i+1}\\rangle`` of `ψ`, measuring each bond with the
-orthogonality centre inside its block. Built on the given centre-movers, so it does not rely on the
-hands-on `canonicalize!`.
+Energy ``\\langle H\\rangle = \\sum_i \\langle h_{i,i+1}\\rangle`` of `ψ`, summing the two-site bond
+expectation values measured with `expval2`.
 """
-function energy(ψ0::MPS, bond_terms)
-    ψ = copy(ψ0)
-    for i in length(ψ):-1:2                 # right-canonical form: centre lands on site 1
-        move_center_left!(ψ, i)
-    end
-    ψ.A[1] = ψ.A[1] / norm(ψ.A[1])
-    E = 0.0
-    for i in 1:length(ψ)-1                  # measure bond i with the centre on site i
-        @tensor θ[l, p1, p2; r]  := ψ.A[i][l, p1; m] * ψ.A[i+1][m, p2; r]
-        @tensor hθ[l, q1, q2; r] := bond_terms[i][q1 q2; p1 p2] * θ[l, p1, p2; r]
-        num = @tensor conj(θ[l p1 p2; r]) * hθ[l p1 p2; r]
-        den = @tensor conj(θ[l p1 p2; r]) *  θ[l p1 p2; r]
-        E += real(num / den)
-        i < length(ψ) - 1 && move_center_right!(ψ, i)
-    end
-    return E
+function energy(ψ::MPS, bond_terms)
+    return sum(i -> expval2(ψ, bond_terms[i], i), 1:length(ψ)-1)
 end
 
 # ╔═╡ c972404e-ab55-4897-8b43-08283c18eca2
@@ -2686,6 +2676,7 @@ version = "4.1.0+0"
 
 # ╔═╡ Cell order:
 # ╠═21e9413d-1deb-48fb-a73e-b39fa23f259a
+# ╠═e5ad7124-bfd6-42c5-930b-1cfbeeb8b75c
 # ╟─75fcb3e1-2319-4427-a9fa-4f3322187d16
 # ╟─5a4c9d32-422f-4459-ad6b-bee40fe3d6eb
 # ╟─f85f7446-0b61-44de-b381-926c9d4f20c6
@@ -2721,6 +2712,7 @@ version = "4.1.0+0"
 # ╟─061ba163-9b59-4dd7-853c-dbc12f20e63a
 # ╟─238b0b2b-37ca-408c-b118-98402b672844
 # ╟─5778ded7-ecd0-4e5b-8056-3cd57ccae80b
+# ╠═d9fccb82-1415-4440-a5cc-e3627dc4680a
 # ╟─70ed085f-16bc-47ab-ad8a-eb2a3fc5e933
 # ╟─200a8cf8-dab5-417b-a612-1728e02bbfe9
 # ╠═388c113b-f1c5-4e53-aab5-c39c52461348
@@ -2728,6 +2720,8 @@ version = "4.1.0+0"
 # ╟─2d4b1356-4ea6-4fda-a889-6bf35b688289
 # ╟─47f450a3-805f-47ac-b316-7471d2668dda
 # ╠═ae6f5cb7-9092-4d62-a393-280db36a4112
+# ╟─7292b323-1bac-4b11-aafd-2b818879224e
+# ╠═fda2e0a0-6dd6-4684-bb40-99abde77744d
 # ╟─acbfe1d4-847f-4d06-b1df-e3256d5c8e38
 # ╟─460a4317-1d44-4f5b-936a-d01da3a82441
 # ╟─194c0de1-4b8d-4bd6-a6ec-9a878210a25a

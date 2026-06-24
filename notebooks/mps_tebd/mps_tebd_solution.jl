@@ -137,11 +137,10 @@ The bond dimension controls how much entanglement the MPS can hold. Across the c
 ``i`` the exact Schmidt rank is at most ``2^{\min(i,\,N-i)}``, so when we build a random MPS
 with maximum bond dimension ``D`` we cap each bond by ``\min\!\big(D,\,2^{\min(i,N-i)}\big)``.
 
-Use the sliders to set the system size and the bond dimension (keep ``N`` modest — the dense
-checks later cost ``2^N``):
+Use the sliders to set the system size and the bond dimension :
 
 - `N` = $(@bind N PlutoUI.Slider(2:100; default = 8, show_value = true))
-- `D` = $(@bind D PlutoUI.Slider(1:16; default = 8, show_value = true))
+- `D` = $(@bind D PlutoUI.Slider(1:32; default = 8, show_value = true))
 """
 
 # ╔═╡ e728551f-63b2-4490-90dc-659c38820491
@@ -258,6 +257,31 @@ md"""
 - Given the discussion about contraction order, can you evaluate that the contraction order is **optimal**?
 """
 
+# ╔═╡ d9fccb82-1415-4440-a5cc-e3627dc4680a
+function expval2(ψ::MPS, O, i::Int) # ⟨ψ|Oᵢᵢ₊₁|ψ⟩ / ⟨ψ|ψ⟩
+    # Contract the left-end:
+    L = id(space(ψ.A[1], 1))
+    # Contract the middle:
+    for j in 1:length(ψ)
+        if j == i
+            # absorb sites i and i+1 together with the two-site operator O[t1 t2; s1 s2]
+            @tensor Eₙ[b'; b] := L[a'; a] *
+                ψ.A[i][a, s1; c] * ψ.A[i+1][c, s2; b] *
+                O[t1 t2; s1 s2] *
+                conj(ψ.A[i][a', t1; c']) * conj(ψ.A[i+1][c', t2; b'])
+            L = Eₙ
+        elseif j == i + 1
+            continue                    # site i+1 was already contracted above
+        else
+            @tensor Eₙ[b'; b] := L[a'; a] * ψ.A[j][a, s; b] * conj(ψ.A[j][a', s; b'])
+            L = Eₙ
+        end
+    end
+    # Contract the right-end:
+    E = real(@tensor L[a; a])
+    return E / norm(ψ)^2
+end
+
 # ╔═╡ 70ed085f-16bc-47ab-ad8a-eb2a3fc5e933
 md"""
 ## 3. Applying operators
@@ -340,6 +364,24 @@ function apply_gate2!(ψ::MPS, i, g; trunc = notrunc())
         ψ.center = i + 1
     end
     return ψ
+end
+
+# ╔═╡ 7292b323-1bac-4b11-aafd-2b818879224e
+md"""
+Note that you can verify yourself to see whether these definitions are compatible: whenever no truncation is happening we should always have that ``⟨ψ|O|ψ⟩ = ⟨ψ|Oψ⟩``, which can now easily be checked explicitly for both single and twosite gates.
+"""
+
+# ╔═╡ fda2e0a0-6dd6-4684-bb40-99abde77744d
+let
+    ψ = canonicalize!(random_mps(N, D), 1)            # normalized reference state
+    # single-site:  ⟨ψ|X₁|ψ⟩  ==  ⟨ψ|(X₁ψ)⟩
+    lhs1 = expval(ψ, X, 1)
+    rhs1 = real(dot(ψ, apply_op1!(copy(ψ), X, 1)))
+    # two-site (no truncation):  ⟨ψ|G₂₃|ψ⟩  ==  ⟨ψ|(G₂₃ψ)⟩
+    G = -(Z ⊗ Z) - 0.3 * (X ⊗ I + I ⊗ X)
+    lhs2 = expval2(ψ, G, 2)
+    rhs2 = real(dot(ψ, apply_gate2!(copy(ψ), 2, G; trunc = notrunc())))
+    (; single = (lhs1, rhs1), two_site = (lhs2, rhs2))
 end
 
 # ╔═╡ acbfe1d4-847f-4d06-b1df-e3256d5c8e38
@@ -457,6 +499,9 @@ F(\phi,\psi)=|\langle\phi|\psi\rangle| / (\lVert\phi\rVert\,\lVert\psi\rVert)
 ```
 """
 
+# ╔═╡ fcbaf6e6-6312-4930-a9b3-726640737ede
+fidelity(ϕ, ψ) = abs(dot(ϕ, ψ)) / (norm(ϕ) * norm(ψ))
+
 # ╔═╡ 0bb47e71-45b7-499e-89ae-8b0b93d37423
 function apply_gate_demo(ψ0::MPS, b, g; trunc)
     # apply g across bond b with the hands-on `apply_gate2!`, truncate, return a fresh MPS
@@ -467,7 +512,7 @@ end
 
 # ╔═╡ 315e62ff-cc5f-45c9-a3ec-1f051fbc13cf
 gauge_demo = let b = N ÷ 2
-    # depends on the hands-on `apply_gate2!`; return `nothing` until it is implemented
+    # depends on the hands-on `apply_gate2!` and `canonicalize!`; return `nothing` until implemented
     try
         ψ0 = random_mps(N, D)
         G  = -(Z ⊗ Z) - 0.5 * (X ⊗ I + I ⊗ X)   # a generic entangling two-site gate
@@ -475,16 +520,10 @@ gauge_demo = let b = N ÷ 2
         exact    = apply_gate_demo(ψ0, b, G; trunc = notrunc())        # untruncated reference
         ungauged = apply_gate_demo(ψ0, b, G; trunc = truncrank(D))     # truncate the raw state as-is
 
-        for i in 1:b-1                  # left-orthogonalize sites 1..b-1   (centre → b)
-            move_center_right!(ψ0, i)
-        end
-        for i in N:-1:b+1               # right-orthogonalize sites b+1..N  (centre stays at b)
-            move_center_left!(ψ0, i)
-        end
+        canonicalize!(ψ0, b)                                          # bring the centre onto bond b
         gauged = apply_gate_demo(ψ0, b, G; trunc = truncrank(D))       # truncate in mixed-canonical gauge
 
-        fid(a, c) = abs(dot(a, c)) / (norm(a) * norm(c))
-        (; F_ungauged = fid(ungauged, exact), F_gauged = fid(gauged, exact), F_between = fid(ungauged, gauged))
+        (; F_ungauged = fidelity(ungauged, exact), F_gauged = fidelity(gauged, exact), F_between = fidelity(ungauged, gauged))
     catch
         nothing
     end
@@ -600,8 +639,8 @@ so every truncation happens in the optimal gauge of §4, with no extra re-canoni
 md"""
 Two pieces are **given**. `bond_hamiltonian(i, N; J, g)` builds the two-site term ``h_{i,i+1}`` with
 each single-site field shared across the bonds it touches, so that ``\sum_i h_{i,i+1} = H`` exactly;
-and `energy(ψ, bond_terms)` measures ``\langle H\rangle = \sum_i \langle h_{i,i+1}\rangle`` by sweeping
-the orthogonality centre through the chain (with the movers above).
+and `energy(ψ, bond_terms)` measures ``\langle H\rangle = \sum_i \langle h_{i,i+1}\rangle`` by summing
+the two-site bond expectation values from `expval2`.
 """
 
 # ╔═╡ fcea497b-96ac-4d12-9363-b879e9e25f4f
@@ -622,26 +661,11 @@ end
 """
     energy(ψ::MPS, bond_terms)
 
-Energy ``\\langle H\\rangle = \\sum_i \\langle h_{i,i+1}\\rangle`` of `ψ`, measuring each bond with the
-orthogonality centre inside its block. Built on the given centre-movers, so it does not rely on the
-hands-on `canonicalize!`.
+Energy ``\\langle H\\rangle = \\sum_i \\langle h_{i,i+1}\\rangle`` of `ψ`, summing the two-site bond
+expectation values measured with `expval2`.
 """
-function energy(ψ0::MPS, bond_terms)
-    ψ = copy(ψ0)
-    for i in length(ψ):-1:2                 # right-canonical form: centre lands on site 1
-        move_center_left!(ψ, i)
-    end
-    ψ.A[1] = ψ.A[1] / norm(ψ.A[1])
-    E = 0.0
-    for i in 1:length(ψ)-1                  # measure bond i with the centre on site i
-        @tensor θ[l, p1, p2; r]  := ψ.A[i][l, p1; m] * ψ.A[i+1][m, p2; r]
-        @tensor hθ[l, q1, q2; r] := bond_terms[i][q1 q2; p1 p2] * θ[l, p1, p2; r]
-        num = @tensor conj(θ[l p1 p2; r]) * hθ[l p1 p2; r]
-        den = @tensor conj(θ[l p1 p2; r]) *  θ[l p1 p2; r]
-        E += real(num / den)
-        i < length(ψ) - 1 && move_center_right!(ψ, i)
-    end
-    return E
+function energy(ψ::MPS, bond_terms)
+    return sum(i -> expval2(ψ, bond_terms[i], i), 1:length(ψ)-1)
 end
 
 # ╔═╡ c972404e-ab55-4897-8b43-08283c18eca2
@@ -741,7 +765,7 @@ let N = 8
         reached with a bond-dimension ``$(D_tebd)`` state instead of the full ``2^{$(N)}`` vector.
         """)
     catch
-        md"""!!! warning "Not yet"
+        md"""!!! warning "Not yet implemented"
             Implement the hands-on functions above (`apply_gate2!`, `canonicalize!`, `trotterize`,
             `trotter_step!`, `tebd_groundstate`), and this cell will compare the TEBD energy against the
             exact dense ``E_0``."""
@@ -2766,6 +2790,7 @@ version = "4.1.0+0"
 # ╟─061ba163-9b59-4dd7-853c-dbc12f20e63a
 # ╟─238b0b2b-37ca-408c-b118-98402b672844
 # ╟─5778ded7-ecd0-4e5b-8056-3cd57ccae80b
+# ╠═d9fccb82-1415-4440-a5cc-e3627dc4680a
 # ╟─70ed085f-16bc-47ab-ad8a-eb2a3fc5e933
 # ╟─200a8cf8-dab5-417b-a612-1728e02bbfe9
 # ╠═388c113b-f1c5-4e53-aab5-c39c52461348
@@ -2773,6 +2798,8 @@ version = "4.1.0+0"
 # ╟─2d4b1356-4ea6-4fda-a889-6bf35b688289
 # ╟─47f450a3-805f-47ac-b316-7471d2668dda
 # ╠═ae6f5cb7-9092-4d62-a393-280db36a4112
+# ╟─7292b323-1bac-4b11-aafd-2b818879224e
+# ╠═fda2e0a0-6dd6-4684-bb40-99abde77744d
 # ╟─acbfe1d4-847f-4d06-b1df-e3256d5c8e38
 # ╟─460a4317-1d44-4f5b-936a-d01da3a82441
 # ╟─194c0de1-4b8d-4bd6-a6ec-9a878210a25a
@@ -2784,6 +2811,7 @@ version = "4.1.0+0"
 # ╟─caf9fe65-9d73-451b-ac94-72857ed84171
 # ╠═9e952ac2-7588-4508-8609-f5e805acf7ae
 # ╟─51f6c497-2d0d-4a92-94b8-abfbb2be7ceb
+# ╠═fcbaf6e6-6312-4930-a9b3-726640737ede
 # ╠═0bb47e71-45b7-499e-89ae-8b0b93d37423
 # ╠═315e62ff-cc5f-45c9-a3ec-1f051fbc13cf
 # ╟─b2dfaf1e-024c-48ae-93d0-59ce6048fd1b
@@ -2801,7 +2829,7 @@ version = "4.1.0+0"
 # ╠═ae9fd9be-c5ef-4da1-ac87-c615f8be14a4
 # ╠═e17a6b67-2f66-4019-a672-5d8d1d70af0d
 # ╟─7ae1b166-f42f-4851-8046-c9cd18ec5484
-# ╠═46722b4e-7f85-4c8a-962a-d5d6a92380b7
+# ╟─46722b4e-7f85-4c8a-962a-d5d6a92380b7
 # ╟─de354344-8cc5-4bc7-b65a-d701cea9b942
 # ╠═1d38d186-f3f2-4a29-8632-96e944040c24
 # ╠═daf475cb-978b-45d0-8e32-a4c94900bf5d

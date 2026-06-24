@@ -29,13 +29,14 @@ PlutoUI.TableOfContents()
 md"""
 # DMRG: the density-matrix renormalization group
 
-TEBD reached the ground state by *evolving* a random MPS in imaginary time — hundreds of small
+TEBD reached the ground state by *evolving* a random MPS in imaginary time, taking hundreds of small
 Trotter steps creeping down the energy landscape. **DMRG** gets to the same ``E_0`` a different way:
 it treats the ground state as a **variational problem** over MPS of fixed bond dimension and solves
-it *site by site*, each local step landing on the exact local optimum. A couple of sweeps and it is
-done.
+it *site by site*, with each local step landing on the exact local optimum. A couple of sweeps and it
+is done.
 
-This notebook builds DMRG from scratch on the same TensorKit primitives — see the table of contents for the outline.
+This notebook builds DMRG from scratch on the same TensorKit primitives. See the table of contents
+for the outline.
 """
 
 # ╔═╡ 732b7211-93ab-4a9f-b01a-0ad81634c0bd
@@ -46,20 +47,20 @@ md"""
 at all. It grew out of the **renormalization group**: Wilson's numerical RG had triumphed on the
 Kondo *impurity* problem by iteratively growing a system and keeping only its lowest-energy states,
 but the same recipe failed badly for homogeneous chains like the Heisenberg model. White's fix was
-to decide *which* states to keep not by energy, but by **weight in the ground state** — keep the
-eigenvectors of the **reduced density matrix** with the largest eigenvalues. Hence the name:
+to decide *which* states to keep not by energy, but by **weight in the ground state**: keep the
+eigenvectors of the **reduced density matrix** with the largest eigenvalues. Hence the name,
 *density-matrix* renormalization group.
 
 A few years later **Östlund and Rommer (1995)** noticed that the object DMRG was implicitly
 building and truncating is exactly a **matrix product state**, and that "keep the largest
 density-matrix eigenvalues" is precisely the **SVD / Schmidt truncation** we already met in TEBD.
-That reframing — *DMRG = variational optimization of the energy over MPS of bounded bond
-dimension* — is the modern view, and the one we take here. The renormalization-group block-growth
+That reframing, *DMRG = variational optimization of the energy over MPS of bounded bond dimension*,
+is the modern view, and the one we take here. The renormalization-group block-growth
 picture and the variational MPS picture are two faces of the same algorithm.
 
 Today DMRG is the **gold standard for 1D ground states**: for gapped one-dimensional systems it
 converges essentially to machine precision, far faster than imaginary-time evolution, and it
-generalizes (with care) to ladders, trees, and — via DMRG's relatives — two dimensions. We will see
+generalizes (with care) to ladders, trees, and, via DMRG's relatives, two dimensions. We will see
 it hit the TEBD energy ``E_0`` in *two sweeps*.
 """
 
@@ -72,14 +73,14 @@ md"""
 ### Carried over from the MPS notebook
 
 We reuse the spin-½ setup and the bare minimum of MPS machinery so this notebook stands on its own:
-the physical space ``\mathbf{d} = \mathbb{C}^2``, the Pauli maps, and — for the transverse-field
+the physical space ``\mathbf{d} = \mathbb{C}^2``, the Pauli maps, and, for the transverse-field
 Ising model
 ```math
 H = -J\sum_i Z_i Z_{i+1} \;-\; g\sum_i X_i ,
 ```
 the `MPS` struct (a vector of rank-3 tensors `A[left, phys; right]` plus an orthogonality centre),
 random states, inner products, and the gauge-moving tools. These are given exactly as in the TEBD
-notebook — fold them away and head to §2.
+notebook, so fold them away and head to §2.
 """
 
 # ╔═╡ b1f90280-aef7-4152-ae77-b9b6200db430
@@ -100,7 +101,8 @@ const MPSTensor{T, S} = TensorMap{T, S, 2, 1, Vector{T}}
 # ╔═╡ 85918d6c-3478-41d4-9e18-14167077874a
 begin
     mutable struct MPS{T, S}
-        A::Vector{MPSTensor{T, S}}   # A[i] : (Vₗ ⊗ d) ← Vᵣ , i.e. A[left, phys; right]
+        # A[i] : (Vₗ ⊗ d) ← Vᵣ, i.e. A[left, phys; right]
+        A::Vector{MPSTensor{T, S}}
         center::Int
     end
     MPS(A) = MPS(A, 0)
@@ -114,7 +116,8 @@ Base.copy(ψ::MPS) = MPS(copy(ψ.A), ψ.center)
 
 # ╔═╡ 3a3a4e17-d6ba-4918-9cae-a2ba7f670dc3
 function random_mps(N::Int, D::Int)
-    cap(i) = min(D, 2^min(i, N - i))                 # bond dim to the right of site i
+    # bond dimension to the right of site i, capped at D
+    cap(i) = min(D, 2^min(i, N - i))
     A = map(1:N) do i
         Dₗ = i == 1 ? 1 : cap(i - 1)
         Dᵣ = i == N ? 1 : cap(i)
@@ -124,7 +127,8 @@ function random_mps(N::Int, D::Int)
 end
 
 # ╔═╡ 31f4444e-f79d-49a0-8c9b-96b610b633c5
-function LinearAlgebra.dot(φ::MPS, ψ::MPS)                       # ⟨φ|ψ⟩
+# ⟨φ|ψ⟩
+function LinearAlgebra.dot(φ::MPS, ψ::MPS)
     L = id(space(ψ.A[1], 1))
     for i in 1:length(ψ)
         @tensor Eₙ[b'; b] := L[a'; a] * ψ.A[i][a, s; b] * conj(φ.A[i][a', s; b'])
@@ -137,7 +141,8 @@ end
 LinearAlgebra.norm(ψ::MPS) = sqrt(real(dot(ψ, ψ)))
 
 # ╔═╡ 5fd1f493-9994-4b55-a64a-aedff9988f1f
-function move_center_right!(ψ::MPS, i)        # QR: leaves A[i] left-orthogonal
+# QR step: leaves A[i] left-orthogonal, carries the centre to site i+1
+function move_center_right!(ψ::MPS, i)
     Q, C = left_orth(ψ.A[i])
     ψ.A[i] = Q
     @tensor B[l p; r] := C[l; m] * ψ.A[i+1][m p; r]
@@ -147,9 +152,14 @@ function move_center_right!(ψ::MPS, i)        # QR: leaves A[i] left-orthogonal
 end
 
 # ╔═╡ 37c0c5ee-a4de-4629-9c16-a2f0596c3729
-function move_center_left!(ψ::MPS, i)         # LQ: leaves A[i] right-orthogonal
-    L, Q = right_orth(permute(ψ.A[i], ((1,), (2, 3))))
-    ψ.A[i] = permute(Q, ((1, 2), (3,)))
+# LQ step: leaves A[i] right-orthogonal, carries the centre to site i-1
+function move_center_left!(ψ::MPS, i)
+    # regroup A[i] as [left; phys right] so right_orth peels off a right-orthogonal Q
+    @tensor Ar[l; p r] := ψ.A[i][l p; r]
+    L, Q = right_orth(Ar)
+    # put Q back into [left phys; right] form
+    @tensor Qm[l p; r] := Q[l; p r]
+    ψ.A[i] = Qm
     @tensor B[l p; r] := ψ.A[i-1][l p; m] * L[m; r]
     ψ.A[i-1] = B
     ψ.center = i - 1
@@ -157,7 +167,8 @@ function move_center_left!(ψ::MPS, i)         # LQ: leaves A[i] right-orthogona
 end
 
 # ╔═╡ a3812e36-c000-412f-a89b-3b239fa94628
-function right_canonicalize!(ψ::MPS)          # sweep the centre to site 1, normalize
+# sweep the centre down to site 1, then normalize
+function right_canonicalize!(ψ::MPS)
     for i in length(ψ):-1:2
         move_center_left!(ψ, i)
     end
@@ -183,18 +194,22 @@ the modes are the **singular values** ``\Lambda_k`` of the ``N\times N`` single-
 E_0 \;=\; -\tfrac12\sum_{k=1}^{N}\Lambda_k .
 ```
 This is genuinely *analytic* (the closed-form free-fermion solution), costs ``O(N^3)`` instead of
-``O(2^N)``, and so gives the **exact** energy at *any* ``N`` — we can check DMRG against it well past
+``O(2^N)``, and so gives the **exact** energy at *any* ``N``, so we can check DMRG against it well past
 the reach of brute-force diagonalization.
 """
 
 # ╔═╡ 52196db6-5473-4686-a1bf-ffe0eaa696ef
 function exact_groundstate(N; J = 1.0, g = 1.0)
-    M = zeros(Float64, N, N)                  # single-particle (Bogoliubov) matrix A + B
+    # single-particle (Bogoliubov) matrix A + B
+    M = zeros(Float64, N, N)
     for i in 1:N
-        M[i, i] = 2g                          # transverse field
-        i < N && (M[i, i+1] = -2J)            # ZZ coupling
+        # 2g on the diagonal (transverse field)
+        M[i, i] = 2g
+        # -2J on the first superdiagonal (ZZ coupling)
+        i < N && (M[i, i+1] = -2J)
     end
-    return -0.5 * sum(svdvals(M))             # E₀ = -½ Σ Λ_k  (free-fermion modes)
+    # E₀ = -½ Σ Λ_k, summing the free-fermion single-particle modes
+    return -0.5 * sum(svdvals(M))
 end
 
 # ╔═╡ ea7353b7-f948-43c1-b6c6-7f2d3f3f150b
@@ -222,9 +237,9 @@ emitting one local operator per site. For nearest-neighbour Ising three states s
 
 | state | meaning |
 |:--|:--|
-| `3` | **ready** — nothing started yet |
-| `2` | **ZZ bond open** — just emitted a ``Z``, the partner ``Z`` must come next |
-| `1` | **finished** — the term is complete |
+| `3` | **ready**: nothing started yet |
+| `2` | **ZZ bond open**: just emitted a ``Z``, the partner ``Z`` must come next |
+| `1` | **finished**: the term is complete |
 
 Reading the bond as rows (incoming state ``w_\ell``) × columns (outgoing state ``w_r``), the bulk
 tensor is the operator-valued matrix
@@ -244,33 +259,43 @@ W \;=\;
 ```
 The chain enters in state `ready` (left boundary vector ``(0,0,1)``) and must exit `finished`
 (right boundary vector ``(1,0,0)``). We fold those boundary vectors into the first and last sites, so
-the end MPO bonds are ``\mathbb{C}^1``. There is deliberately **no term-to-MPO compiler** here — the
+the end MPO bonds are ``\mathbb{C}^1``. There is deliberately **no term-to-MPO compiler** here; the
 FSM *is* the teaching point.
 """
 
 # ╔═╡ 83286c5e-4a16-4221-90e7-a80783cf40c4
-# Bulk MPO tensor  W : (D ⊗ d) ← (d ⊗ D),  D = ℂ³,  legs W[wₗ, bra; ket, wᵣ].
+# Bulk MPO tensor W : (D ⊗ d) ← (d ⊗ D), with D = ℂ³ and legs W[wₗ, bra; ket, wᵣ].
 function bulk_mpo_tensor(J, g)
     D = ℂ^3
-    arr = zeros(ComplexF64, 3, 2, 2, 3)       # [wₗ, bra, ket, wᵣ]
-    z = ComplexF64[1 0; 0 -1]; x = ComplexF64[0 1; 1 0]; i = ComplexF64[1 0; 0 1]
-    arr[1, :, :, 1] =  i        # (1,1)  𝟙   : propagate "finished"
-    arr[2, :, :, 1] =  z        # (2,1)  Z   : close an open ZZ bond
-    arr[3, :, :, 1] = -g .* x   # (3,1) -gX  : on-site field, then finish
-    arr[3, :, :, 2] = -J .* z   # (3,2) -JZ  : open a ZZ bond
-    arr[3, :, :, 3] =  i        # (3,3)  𝟙   : stay "ready"
+    # index order of arr is [wₗ, bra, ket, wᵣ]
+    arr = zeros(ComplexF64, 3, 2, 2, 3)
+    z = ComplexF64[1 0; 0 -1]
+    x = ComplexF64[0 1; 1 0]
+    i = ComplexF64[1 0; 0 1]
+    # (1,1) 𝟙: propagate the "finished" state
+    arr[1, :, :, 1] = i
+    # (2,1) Z: close an open ZZ bond
+    arr[2, :, :, 1] = z
+    # (3,1) -gX: on-site field, then finish
+    arr[3, :, :, 1] = -g .* x
+    # (3,2) -JZ: open a ZZ bond
+    arr[3, :, :, 2] = -J .* z
+    # (3,3) 𝟙: stay "ready"
+    arr[3, :, :, 3] = i
     return TensorMap(arr, D * d, d * D)
 end
 
 # ╔═╡ ca683242-2bcb-43d6-b342-2515152cc1d2
-# Full MPO chain.  Fold the boundary vectors (0,0,1) and (1,0,0) into the end
+# Full MPO chain. Fold the boundary vectors (0,0,1) and (1,0,0) into the end
 # sites by slicing row 3 (site 1) and column 1 (site N), so their MPO bonds are ℂ¹.
 function build_mpo(N; J = 1.0, g = 1.0)
-    W   = bulk_mpo_tensor(J, g)
-    arr = convert(Array, W)                                   # (3, 2, 2, 3)
-    D = ℂ^3; D1 = ℂ^1
-    W_first = TensorMap(arr[3:3, :, :, :], D1 * d, d * D)     # left vector: row "ready"
-    W_last  = TensorMap(arr[:, :, :, 1:1], D * d, d * D1)     # right vector: col "finished"
+    W = bulk_mpo_tensor(J, g)
+    arr = convert(Array, W)
+    D = ℂ^3
+    D1 = ℂ^1
+    # site 1: keep only the "ready" row; site N: keep only the "finished" column
+    W_first = TensorMap(arr[3:3, :, :, :], D1 * d, d * D)
+    W_last = TensorMap(arr[:, :, :, 1:1], D * d, d * D1)
     return [i == 1 ? W_first : (i == N ? W_last : W) for i in 1:N]
 end
 
@@ -280,7 +305,7 @@ With the MPO in hand, the energy ``\langle\psi|H|\psi\rangle`` is one big **sand
 ket MPS on top, the MPO in the middle, the bra MPS on the bottom, and contract everything to a single
 number. (We draw the **ket on top, the bra on the bottom** throughout this notebook.) Done in one
 left-to-right sweep, this reuses the very same "grow an environment one site at a time" idea as the
-norm in the MPS notebook — only now each environment carries an extra **MPO bond**.
+norm in the MPS notebook, only now each environment carries an extra **MPO bond**.
 """
 
 # ╔═╡ f067ee9f-d977-437b-b147-6acb0440f054
@@ -309,6 +334,9 @@ md"""
     *`finished, ZZ-close, ZZ-skip-then-close, ready` *and fill the ``4\times4`` matrix.*
 """
 
+# ╔═╡ e75c40d9-0356-42bc-86ce-da55d2e4c640
+# add code here ...
+
 # ╔═╡ 0f580d4d-bfd5-4039-b5e1-33ea6ea7395e
 md"""
 ## 3. DMRG = alternating least squares
@@ -319,7 +347,7 @@ We want the MPS (of fixed bond dimension) that minimizes the energy. As a constr
 ```
 Introduce a Lagrange multiplier ``\lambda`` and minimize ``\langle\psi|H|\psi\rangle -
 \lambda\big(\langle\psi|\psi\rangle - 1\big)``. The catch: an MPS is a *product* of many tensors, so
-this objective is a high-degree polynomial in all of them at once — **non-convex, no closed form.**
+this objective is a high-degree polynomial in all of them at once, **non-convex, with no closed form.**
 
 **The key observation:** the energy is only **quadratic in any *single* site tensor** ``A^{[i]}``,
 holding the others fixed. Freeze every tensor but ``A^{[i]}`` and the network around it contracts to
@@ -342,7 +370,7 @@ generalized problem collapses to an ordinary **Hermitian eigenvalue problem**
 \boxed{\,H^{\text{eff}}_i\, A^{[i]} = \lambda\, A^{[i]}\,}
 ```
 whose **lowest eigenvector is the optimal site tensor** and whose eigenvalue ``\lambda`` is the
-energy. This is **alternating least squares**: optimize one block exactly, move on, repeat — each
+energy. This is **alternating least squares**: optimize one block exactly, move on, repeat. Each
 local solve can only *lower* the energy, so sweeping back and forth converges.
 """
 
@@ -355,8 +383,8 @@ md"""
 
 ``H^{\text{eff}}_i`` is just the energy sandwich with site ``i`` cut out. Everything left of ``i``
 contracts to a **left environment** ``L`` (legs: ket bond, MPO bond, bra bond); everything right of
-``i`` to a **right environment** ``R``. We build them the same way as the norm sweep — one site at a
-time — starting from the trivial boundaries above. Each step absorbs one **column** of the sandwich
+``i`` to a **right environment** ``R``. We build them the same way as the norm sweep, one site at a
+time, starting from the trivial boundaries above. Each step absorbs one **column** of the sandwich
 (ket ``A`` on top, ``W`` in the middle, bra ``\bar A`` on the bottom) into the environment block:
 """
 
@@ -371,7 +399,7 @@ md"""
 !!! warning "Hands-on: environment recursion"
     Fill in `grow_left` and `grow_right`. Each absorbs one site `(A, W)` into an environment by
     contracting the ket tensor `A`, the MPO tensor `W`, and the bra tensor `conj(A)` over their shared
-    legs — exactly the three rows of the sandwich, one column wider (the diagrams above).
+    legs: exactly the three rows of the sandwich, one column wider (the diagrams above).
 
     Conventions: `L[b'; w, b]` is `bra ← (mpo, ket)`; `R[b, w; b']` is `(ket, mpo) ← bra`;
     `A[a, s; b]` is `A[left, phys; right]`; `W[w, bra; ket, w']`.
@@ -384,7 +412,7 @@ md"""
 Absorb one site into the left environment: `L` (valid left of the site) → `L'` (valid right of it).
 """
 function grow_left(L, A, W)
-    error("Hands-on: contract L, A, W and conj(A) — see the sandwich diagram")
+    error("Hands-on: contract L, A, W and conj(A); see the sandwich diagram")
 end
 
 # ╔═╡ 74087036-4e47-4e87-b4a6-b470bf67c431
@@ -402,7 +430,7 @@ md"""
 ### The effective Hamiltonian action
 
 With ``L`` and ``R`` fixed, ``H^{\text{eff}}_i`` is the map that takes the centre tensor ``A`` to a
-new tensor of the **same shape** — contract ``L``–``W``–``R`` onto the *ket* legs of ``A`` and leave
+new tensor of the **same shape**: contract ``L``–``W``–``R`` onto the *ket* legs of ``A`` and leave
 the *bra* legs open (the diagram above). We never form the dense ``H^{\text{eff}}`` matrix; we only
 need its **action** on a tensor, which is all a Krylov eigensolver asks for.
 
@@ -428,7 +456,7 @@ md"""
 KrylovKit's `eigsolve` runs a matrix-free Lanczos iteration: hand it the *linear map* `x ->
 apply_Heff(x, L, W, R)`, a starting vector (the current site tensor is a fine guess), and ask for the
 smallest real eigenvalue `:SR`. Because `apply_Heff` maps the site space to itself, the returned
-eigenvector is *already* a valid replacement site tensor — no reshaping needed.
+eigenvector is *already* a valid replacement site tensor, with no reshaping needed.
 """
 
 # ╔═╡ 6d6e94cf-5638-4367-89d6-818274d1bb49
@@ -442,10 +470,11 @@ md"""
 ### Sweeping: move the gauge, carry the environments
 
 One local solve gives the optimal tensor *at the centre*. To optimize the neighbour next, we must
-move the orthogonality centre onto it — a single **QR (move right) or LQ (move left)**, the
+move the orthogonality centre onto it with a single **QR (move right) or LQ (move left)**, the
 `move_center_*!` tools from the MPS notebook. Crucially, moving the centre keeps the next problem an
 ordinary eigenvalue problem (``N = \mathbb{1}`` stays true), and we **grow the environment over the
-site we just left** so ``L`` and ``R`` are always ready — no environment is ever rebuilt from scratch.
+site we just left**, so ``L`` and ``R`` are always ready and no environment is ever rebuilt from
+scratch.
 
 A **sweep** walks the centre ``1 \to N`` optimizing every site, then ``N \to 1``. Two such sweeps are
 usually enough for a gapped 1D model.
@@ -480,13 +509,14 @@ end
 
 # ╔═╡ 841db3a1-3360-4485-b59d-0eac5d400ce4
 # Energy as the full MPO sandwich: sweep the left environment across the whole
-# chain and read off the single remaining scalar.  (Assumes ‖ψ‖ = 1.)
+# chain, then close it against the right boundary to read off the scalar. (Assumes ‖ψ‖ = 1.)
 function energy(ψ::MPS, mpo)
     L = left_boundary()
     for i in 1:length(ψ)
         L = grow_left(L, ψ.A[i], mpo[i])
     end
-    return real(convert(Array, L)[1, 1, 1])
+    R = right_boundary()
+    return real(@tensor L[bp; wr b] * R[b wr; bp])
 end
 
 # ╔═╡ 62f678c7-fad6-42b7-966e-c20b0425292f
@@ -497,8 +527,7 @@ begin
     is_handson_stub(e) = e isa ErrorException && occursin("Hands-on", e.msg)
     handson_note(what) = Markdown.MD(Markdown.Admonition("warning",
         "Waiting on the hands-on functions",
-        [Markdown.parse("Implement `grow_left`, `grow_right`, `apply_Heff`, and `dmrg` above — " *
-                        "then **$(what)** will appear here.")]))
+        [Markdown.parse("Fill in the hands-on functions above, then **$(what)** will appear here.")]))
 end
 
 # ╔═╡ 46a0f8f3-ada8-4094-9f38-c92e4e46e490
@@ -506,7 +535,7 @@ md"""
 ## 4. The payoff: DMRG on the transverse-field Ising model
 
 Time to watch it run. Pick the model and the bond dimension the variational state may keep, then
-compare DMRG to the **exact free-fermion** ``E_0`` (the same target TEBD chases — now available at any
+compare DMRG to the **exact free-fermion** ``E_0`` (the same target TEBD chases, now available at any
 ``N``).
 
 - `N` = $(@bind N PlutoUI.Slider(4:100; default = 10, show_value = true))
@@ -514,7 +543,7 @@ compare DMRG to the **exact free-fermion** ``E_0`` (the same target TEBD chases 
 - `J` = $(@bind J PlutoUI.Slider(0.0:0.1:2.0; default = 1.0, show_value = true))
 - `g` = $(@bind g PlutoUI.Slider(0.0:0.1:2.0; default = 1.0, show_value = true))
 
-*(Until the hands-on functions — `grow_left`, `grow_right`, `apply_Heff`, `dmrg` — are filled in, the
+*(Until the hands-on functions `grow_left`, `grow_right`, `apply_Heff`, and `dmrg` are filled in, the
 cells below show a placeholder note instead of an error.)*
 """
 
@@ -540,7 +569,7 @@ E_0^{\\text{exact}} = $(round(E0; digits = 8)).
 ```
 
 Reached in **$(length(dmrg_run.Ehist)) sweep$(length(dmrg_run.Ehist) == 1 ? "" : "s")**, with relative
-error ``|E_{\\text{DMRG}} - E_0| / |E_0| = $(round(abs(dmrg_run.E - E0) / abs(E0); sigdigits = 3))`` —
+error ``|E_{\\text{DMRG}} - E_0| / |E_0| = $(round(abs(dmrg_run.E - E0) / abs(E0); sigdigits = 3))``,
 the same ground-state energy TEBD spends hundreds of Trotter steps converging to.
 """) : handson_note("the DMRG energy")
 
@@ -562,7 +591,7 @@ end
 md"""
 ### DMRG at scale
 
-A dense solver would stop near ``N \approx 12`` — it stores ``2^N`` numbers — but **both** DMRG and
+A dense solver would stop near ``N \approx 12``, since it stores ``2^N`` numbers, but **both** DMRG and
 the free-fermion reference only touch small (poly-``N``) objects, so we can push the comparison far
 out. At the **critical point** ``J = g = 1`` the energy per site approaches the thermodynamic-limit
 value ``e_\infty = -4/\pi \approx -1.27324`` as the chain grows. We run a few sizes (fixed
@@ -603,8 +632,8 @@ end
 md"""
 ## 5. The two-site variant
 
-The DMRG we just built optimizes **one site at a time**, at a **fixed** bond dimension — whatever the
-initial MPS happened to carry. That has two drawbacks: the bond dimension can never *grow*, so you
+The DMRG we just built optimizes **one site at a time**, at a **fixed** bond dimension, namely whatever
+the initial MPS happened to carry. That has two drawbacks: the bond dimension can never *grow*, so you
 must guess it up front; and the optimization can stall in a poor local minimum (the single-site update
 cannot change the Schmidt rank across a bond).
 
@@ -612,13 +641,13 @@ cannot change the Schmidt rank across a bond).
 once:
 
 1. **merge** ``A^{[i]}`` and ``A^{[i+1]}`` over their shared bond into a two-site block ``\Theta``;
-2. **solve** the local eigenproblem ``H^{\text{eff}}_{i,i+1}\,\Theta = \lambda\,\Theta`` — now with
+2. **solve** the local eigenproblem ``H^{\text{eff}}_{i,i+1}\,\Theta = \lambda\,\Theta``, now with
    *two* MPO tensors in the effective Hamiltonian;
 3. **split** ``\Theta`` back into two tensors with an SVD, **truncating** the new bond to the largest
    singular values.
 
-Because the SVD picks the optimal rank, the **bond dimension adapts** — it grows where the state is
-entangled and stays small where it is not — and you can start from a trivial **product state**
+Because the SVD picks the optimal rank, the **bond dimension adapts**: it grows where the state is
+entangled and stays small where it is not, so you can start from a trivial **product state**
 (``D = 1``) and let DMRG discover the right bond dimension. In the mixed-canonical gauge the discarded
 singular weight ``\varepsilon`` is exactly the (globally optimal) truncation error, the same quantity
 TEBD controls.
@@ -630,39 +659,43 @@ fig("dmrg-heff2.svg")
 # ╔═╡ 6710edc5-6c9b-44eb-8122-6b3442aa91cf
 md"""
 The effective Hamiltonian now sandwiches **two** MPO tensors, ``L``–``W_i``–``W_{i+1}``–``R``, and
-acts on the two-site block ``\Theta[a, s_1, s_2; b]``. Everything else — the environments
-`grow_left`/`grow_right`, the gauge moves, the sweep structure — is **reused unchanged** from the
-single-site code above. (Given and complete; they lean on your `grow_left`/`grow_right`.)
+acts on the two-site block ``\Theta[a, s_1, s_2; b]``. Everything else (the environments
+`grow_left`/`grow_right`, the gauge moves, the overall sweep) carries over **unchanged** from the
+single-site code, so the two-site functions below lean on the ones you already wrote.
+
+!!! warning "Hands-on: two-site DMRG"
+    Three functions, each a small step up from its single-site cousin:
+
+    1. `apply_Heff2(Θ, L, W1, W2, R)`: the analogue of `apply_Heff`, but with *two* MPO tensors in the
+       sandwich. Contract `L`, `W1`, `W2`, and `R` onto the ket legs of `Θ[a, s1, s2; b]`, leaving its
+       two bra legs open.
+    2. `two_site_update(L, A1, A2, W1, W2, R; trunc, dir)`: merge `A1` and `A2` into a block `Θ`, solve
+       its local ground state with `eigsolve`, then `svd_trunc` `Θ` back into two tensors. Send the
+       centre left or right according to `dir`, and return the discarded weight `ε` too.
+    3. `dmrg2`: the same sweep as `dmrg`, but stepping over *bonds* with `two_site_update` and carrying
+       `Lenv`/`Renv` along (built, as before, from `grow_left`/`grow_right`).
 """
 
 # ╔═╡ fa008274-4502-46cc-a663-48a25d3d06c1
-# Two-site effective Hamiltonian action: contract L – W₁ – W₂ – R onto Θ's ket legs.
+"""
+    apply_Heff2(Θ, L, W1, W2, R) -> Θ′
+
+Matrix-free action of the two-site effective Hamiltonian on the merged block `Θ[a, s1, s2; b]`.
+"""
 function apply_Heff2(Θ, L, W1, W2, R)
-    @tensor Θ2[a2 t1 t2; b2] := L[a2; wl a] * Θ[a s1 s2; b] *
-        W1[wl t1; s1 wm] * W2[wm t2; s2 wr] * R[b wr; b2]
-    return Θ2
+    error("Hands-on: contract L, W1, W2, R onto the ket legs of Θ, leaving its two bra legs open")
 end
 
 # ╔═╡ f0faf98c-0d9a-4538-97d4-8f2161ac7e44
-# One two-site update: form Θ, find its ground state, SVD-truncate, and push the
-# centre toward the sweep direction.  Returns the two new tensors, the energy,
-# and the truncation error ε (norm of the discarded singular values).
+"""
+    two_site_update(L, A1, A2, W1, W2, R; trunc, dir) -> (A1′, A2′, e, ε)
+
+One two-site update on sites `i, i+1`: merge `A1`, `A2` into a block `Θ`, find its local ground state,
+then SVD-truncate `Θ` back into two tensors. `dir` (`:right` or `:left`) sets which neighbour keeps the
+orthogonality centre. Returns the two new tensors, the block energy `e`, and the discarded weight `ε`.
+"""
 function two_site_update(L, A1, A2, W1, W2, R; trunc, dir)
-    @tensor Θ[a s1 s2; b] := A1[a s1; m] * A2[m s2; b]
-    vals, vecs, _ = eigsolve(x -> apply_Heff2(x, L, W1, W2, R), Θ, 1, :SR; ishermitian = true)
-    Θopt = vecs[1]
-    e = real(vals[1])
-    # In the mixed-canonical gauge these singular values are the Schmidt values,
-    # so this truncation is globally optimal at this bond.
-    U, S, Vh, ε = svd_trunc(permute(Θopt, ((1, 2), (3, 4))); trunc)
-    if dir === :right
-        A1n = U                                   # left-orthonormal
-        @tensor A2n[a s; b] := S[a; m] * Vh[m; s b]   # carries the centre right
-    else
-        @tensor A1n[a s; b] := U[a s; m] * S[m; b]    # carries the centre left
-        A2n = permute(Vh, ((1, 2), (3,)))         # right-orthonormal
-    end
-    return A1n, A2n, e, ε
+    error("Hands-on: merge A1·A2 into Θ, eigsolve apply_Heff2, then svd_trunc back into two tensors")
 end
 
 # ╔═╡ b56f4e3f-83d3-4b5c-89c7-7b3958a4a955
@@ -673,38 +706,7 @@ Two-site DMRG: like `dmrg`, but each step optimizes a two-site block and SVD-tru
 bond dimension *adapts* up to the cap `D` (and singular-value cutoff `cutoff`).
 """
 function dmrg2(ψ::MPS, mpo; D = 32, cutoff = 1e-12, maxsweeps = 20, tol = 1e-10, verbose = true)
-    N = length(ψ)
-    right_canonicalize!(ψ)
-    trunc = truncrank(D) & trunctol(; atol = cutoff)
-    Renv = Vector{Any}(undef, N + 1); Renv[N+1] = right_boundary()
-    for i in N:-1:1
-        Renv[i] = grow_right(Renv[i+1], ψ.A[i], mpo[i])
-    end
-    Lenv = Vector{Any}(undef, N + 1); Lenv[1] = left_boundary()
-    Eprev = Inf; E = 0.0; Ehist = Float64[]; maxε = 0.0
-    for sweep in 1:maxsweeps
-        maxε = 0.0
-        for i in 1:N-1                                    # left → right
-            A1, A2, e, ε = two_site_update(Lenv[i], ψ.A[i], ψ.A[i+1],
-                                           mpo[i], mpo[i+1], Renv[i+2]; trunc, dir = :right)
-            ψ.A[i] = A1; ψ.A[i+1] = A2; ψ.center = i + 1
-            Lenv[i+1] = grow_left(Lenv[i], ψ.A[i], mpo[i])
-            E = e; maxε = max(maxε, ε)
-        end
-        for i in N-1:-1:1                                 # right → left
-            A1, A2, e, ε = two_site_update(Lenv[i], ψ.A[i], ψ.A[i+1],
-                                           mpo[i], mpo[i+1], Renv[i+2]; trunc, dir = :left)
-            ψ.A[i] = A1; ψ.A[i+1] = A2; ψ.center = i
-            Renv[i+1] = grow_right(Renv[i+2], ψ.A[i+1], mpo[i+1])
-            E = e; maxε = max(maxε, ε)
-        end
-        push!(Ehist, E)
-        verbose && println("  sweep $(lpad(sweep,2))   E = $E   max ε = $maxε")
-        abs(E - Eprev) < tol && (Eprev = E; break)
-        Eprev = E
-    end
-    ψ.A[1] = ψ.A[1] / norm(ψ.A[1])
-    return ψ, Eprev, Ehist, maxε
+    error("Hands-on: sweep like `dmrg`, but step over bonds with `two_site_update`")
 end
 
 # ╔═╡ 1a4f419f-20c3-4934-bc40-d89a88e6e8f9
@@ -716,11 +718,13 @@ dimension on its own, up to the cap below. Reuses `N`, `J`, `g` from the sliders
 """
 
 # ╔═╡ 6614db8b-e5a7-4df4-bcb9-f4727293a28e
-bonddims(ψ::MPS) = [dim(domain(A)) for A in ψ.A]   # right virtual bond of each site
+# right virtual bond of each site
+bonddims(ψ::MPS) = [dim(domain(A)) for A in ψ.A]
 
 # ╔═╡ b12225c4-b61c-4424-839a-c2a67a6bd89f
 twosite_run = try
-    ψ0 = random_mps(N, 1)                          # product state, bond dimension 1
+    # product state, bond dimension 1
+    ψ0 = random_mps(N, 1)
     ψ, E, Ehist, ε = dmrg2(ψ0, build_mpo(N; J, g); D = Dmax, cutoff = 1e-12,
                            maxsweeps = 12, tol = 1e-12)
     (; ok = true, ψ, E, Ehist, ε)
@@ -761,7 +765,7 @@ end
 
 # ╔═╡ f136df0b-4991-42da-9f8e-fe80e2f0908a
 md"""
-**Single-site vs two-site — which to use?**
+**Single-site vs two-site: which to use?**
 
 | | single-site (`dmrg`) | two-site (`dmrg2`) |
 |:--|:--|:--|
@@ -771,7 +775,7 @@ md"""
 | truncation | none | discards weight ``\varepsilon`` |
 | getting stuck | more prone | more robust |
 
-In practice two-site DMRG is the **default workhorse** — you set a maximum bond dimension and a
+In practice two-site DMRG is the **default workhorse**: you set a maximum bond dimension and a
 singular-value cutoff and let it find the rest. Single-site is used once a good state is already in
 hand (it is cheaper and, with modern subspace-expansion tricks, can also grow the bond dimension).
 """
@@ -783,15 +787,15 @@ md"""
 DMRG turns the ground-state search into a sequence of **small, exactly-solvable eigenvalue problems**,
 one site at a time:
 
-- the Hamiltonian becomes an **MPO** — a finite-state machine over the chain;
+- the Hamiltonian becomes an **MPO**, a finite-state machine over the chain;
 - freezing all sites but one makes the energy **quadratic**, so the local optimum is an **eigenvector**
   of an effective Hamiltonian ``L``–``W``–``R``, *provided* the gauge centre sits on that site;
-- **sweeping** while carrying the gauge and the environments along sweeps the whole chain to the
-  variational minimum — the same ``E_0`` as TEBD, in a handful of sweeps instead of hundreds of steps;
+- **sweeping** while carrying the gauge and the environments along drives the whole chain to the
+  variational minimum, the same ``E_0`` as TEBD, in a handful of sweeps instead of hundreds of steps;
 - the **two-site** variant optimizes a block at a time and SVD-truncates, so the bond dimension
-  *adapts* — the practical default, able to start from a product state.
+  *adapts*. This is the practical default, able to start from a product state.
 
-**Next:** the punchline of the whole session — the *symmetric* version. Conserved quantities
+**Next:** the punchline of the whole session, the *symmetric* version. Conserved quantities
 block-diagonalize the tensors; switching the spaces and constructors from plain to ``\mathbb{Z}_2``-
 or ``SU(2)``-graded leaves **every algorithmic function above unchanged**, and buys a large speed-up.
 """
@@ -2731,6 +2735,7 @@ version = "4.1.0+0"
 # ╟─f067ee9f-d977-437b-b147-6acb0440f054
 # ╠═62b1fa38-3da3-42e5-9e23-774cf078bb12
 # ╟─f95b6018-0f72-4109-9b13-a198c800b7b7
+# ╠═e75c40d9-0356-42bc-86ce-da55d2e4c640
 # ╟─0f580d4d-bfd5-4039-b5e1-33ea6ea7395e
 # ╟─2c55fb63-ecfd-4b52-8ee9-c972be187742
 # ╟─44fd26bb-fb8d-4cc1-9cc7-63a331015048
