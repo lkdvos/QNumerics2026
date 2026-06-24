@@ -459,51 +459,57 @@ F(\phi,\psi)=|\langle\phi|\psi\rangle| / (\lVert\phi\rVert\,\lVert\psi\rVert)
 
 # ╔═╡ 0bb47e71-45b7-499e-89ae-8b0b93d37423
 function apply_gate_demo(ψ0::MPS, b, g; trunc)
-    # apply g across bond b, truncate, return fresh MPS
+    # apply g across bond b with the hands-on `apply_gate2!`, truncate, return a fresh MPS
     ψ = copy(ψ0)
-    @tensor θ[l, p1, p2; r]  := ψ.A[b][l, p1; m] * ψ.A[b+1][m, p2; r]
-    @tensor θg[l, q1, q2; r] := g[q1 q2; p1 p2] * θ[l, p1, p2; r]
-    U, S, Vh, ε = svd_trunc(permute(θg, ((1, 2), (3, 4))); trunc)
-    ψ.A[b] = U
-    @tensor B[s, q2; r] := S[s; t] * Vh[t; q2 r]
-    ψ.A[b+1] = B
+    apply_gate2!(ψ, b, g; trunc)
     return ψ
 end
 
 # ╔═╡ 315e62ff-cc5f-45c9-a3ec-1f051fbc13cf
 gauge_demo = let b = N ÷ 2
-    ψ0 = random_mps(N, D)
-    G  = -(Z ⊗ Z) - 0.5 * (X ⊗ I + I ⊗ X)   # a generic entangling two-site gate
+    # depends on the hands-on `apply_gate2!`; return `nothing` until it is implemented
+    try
+        ψ0 = random_mps(N, D)
+        G  = -(Z ⊗ Z) - 0.5 * (X ⊗ I + I ⊗ X)   # a generic entangling two-site gate
 
-    exact    = apply_gate_demo(ψ0, b, G; trunc = notrunc())        # untruncated reference
-    ungauged = apply_gate_demo(ψ0, b, G; trunc = truncrank(D))     # truncate the raw state as-is
+        exact    = apply_gate_demo(ψ0, b, G; trunc = notrunc())        # untruncated reference
+        ungauged = apply_gate_demo(ψ0, b, G; trunc = truncrank(D))     # truncate the raw state as-is
 
-    for i in 1:b-1                  # left-orthogonalize sites 1..b-1   (centre → b)
-        move_center_right!(ψ0, i)
+        for i in 1:b-1                  # left-orthogonalize sites 1..b-1   (centre → b)
+            move_center_right!(ψ0, i)
+        end
+        for i in N:-1:b+1               # right-orthogonalize sites b+1..N  (centre stays at b)
+            move_center_left!(ψ0, i)
+        end
+        gauged = apply_gate_demo(ψ0, b, G; trunc = truncrank(D))       # truncate in mixed-canonical gauge
+
+        fid(a, c) = abs(dot(a, c)) / (norm(a) * norm(c))
+        (; F_ungauged = fid(ungauged, exact), F_gauged = fid(gauged, exact), F_between = fid(ungauged, gauged))
+    catch
+        nothing
     end
-    for i in N:-1:b+1               # right-orthogonalize sites b+1..N  (centre stays at b)
-        move_center_left!(ψ0, i)
-    end
-    gauged = apply_gate_demo(ψ0, b, G; trunc = truncrank(D))       # truncate in mixed-canonical gauge
-
-    fid(a, c) = abs(dot(a, c)) / (norm(a) * norm(c))
-    (; F_ungauged = fid(ungauged, exact), F_gauged = fid(gauged, exact), F_between = fid(ungauged, gauged))
 end
 
 # ╔═╡ b2dfaf1e-024c-48ae-93d0-59ce6048fd1b
 let gd = gauge_demo
-    fig = Figure(; size = (560, 320))
-    ax = Axis(fig[1, 1]; ylabel = "fidelity with the untruncated state",
-        title = "same gate, same truncation — only the gauge differs",
-        xticks = (1:2, ["ungauged", "gauged first"]))
-    barplot!(ax, 1:2, [gd.F_ungauged, gd.F_gauged]; color = [:crimson, :seagreen])
-    hlines!(ax, [1.0]; color = :gray, linestyle = :dash)
-    ylims!(ax, min(gd.F_ungauged, gd.F_gauged) - 0.01, 1.001)
-    fig
+    if gd isa NamedTuple
+        fig = Figure(; size = (560, 320))
+        ax = Axis(fig[1, 1]; ylabel = "fidelity with the untruncated state",
+            title = "same gate, same truncation — only the gauge differs",
+            xticks = (1:2, ["ungauged", "gauged first"]))
+        barplot!(ax, 1:2, [gd.F_ungauged, gd.F_gauged]; color = [:crimson, :seagreen])
+        hlines!(ax, [1.0]; color = :gray, linestyle = :dash)
+        ylims!(ax, min(gd.F_ungauged, gd.F_gauged) - 0.01, 1.001)
+        fig
+    else
+        md"""!!! warning "Not yet implemented"
+            Implement the hands-on `apply_gate2!` above; then this experiment runs and plots the
+            ungauged-vs-gauged truncation fidelities."""
+    end
 end
 
 # ╔═╡ ac44ec3e-24ee-4c09-b5bc-9ddafae32a88
-Markdown.parse("""
+gauge_demo isa NamedTuple ? Markdown.parse("""
 Truncating the same gated state back to bond ``D = $(D)``:
 
 ```math
@@ -517,7 +523,8 @@ The two truncated states even differ from each other
 (``F = $(round(gauge_demo.F_between; digits=5))``). Gauging before truncating is strictly more
 faithful, for the price of one QR/LQ sweep.
 *(Re-run to resample the random state — the ordering holds.)*
-""")
+""") : md"""!!! warning "Not yet implemented"
+    Implement the hands-on `apply_gate2!` above to see the gauged-vs-ungauged fidelity comparison."""
 
 # ╔═╡ 7ac2f15f-7d97-49e8-9c68-6fd225f65909
 md"""
