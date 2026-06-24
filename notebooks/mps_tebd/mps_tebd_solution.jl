@@ -22,6 +22,9 @@ begin
 	import LinearAlgebra: LinearAlgebra, dot, norm
 end
 
+# ╔═╡ e5ad7124-bfd6-42c5-930b-1cfbeeb8b75c
+PlutoUI.TableOfContents()
+
 # ╔═╡ 75fcb3e1-2319-4427-a9fa-4f3322187d16
 md"""
 # Matrix product states & TEBD
@@ -30,18 +33,12 @@ The previous notebook ended on this: the ground state of the transverse-field Is
 A state with low entanglement is *close to low rank* across each bond — so we should be able to store it, and compute with it, **without ever writing down the full ``2^N`` vector**.
 
 A **matrix product state (MPS)** is exactly such a representation: a chain of small rank-3 tensors.
-This notebook builds it up from scratch and uses it to run **TEBD** (time-evolving block decimation), (hopefully) recovering the same ground-state energy ``E_0`` as the dense solver.
-
-1. **Define & build an MPS** — a train of rank-3 tensors
-2. **Norm & expectation values** — contract the chain against its conjugate
-3. **Apply operators** — single-site, and two-site *gates*
-4. **Gauging improves fidelity** — canonical form makes truncation *optimal*
-5. **TEBD** — imaginary-time evolution to the ground state
+This notebook builds it up from scratch and uses it to run **TEBD** (time-evolving block decimation), (hopefully) recovering the same ground-state energy ``E_0`` as the dense solver — see the table of contents for the outline.
 """
 
 # ╔═╡ 5a4c9d32-422f-4459-ad6b-bee40fe3d6eb
-fig(name) = HTML(string("<div style=\"text-align:center;margin:0.6em 0\">",
-		read(joinpath(@__DIR__, "mps_tebd", name), String), "</div>"))
+fig(name) = PlutoUI.Resource(string("https://raw.githubusercontent.com/lkdvos/QNumerics2026/main/notebooks/mps_tebd/", name),
+		:style => "display:block; margin:0.6em auto; max-width:100%")
 
 # ╔═╡ f85f7446-0b61-44de-b381-926c9d4f20c6
 md"""
@@ -2726,6 +2723,7 @@ version = "4.1.0+0"
 
 # ╔═╡ Cell order:
 # ╠═21e9413d-1deb-48fb-a73e-b39fa23f259a
+# ╠═e5ad7124-bfd6-42c5-930b-1cfbeeb8b75c
 # ╟─75fcb3e1-2319-4427-a9fa-4f3322187d16
 # ╟─5a4c9d32-422f-4459-ad6b-bee40fe3d6eb
 # ╟─f85f7446-0b61-44de-b381-926c9d4f20c6

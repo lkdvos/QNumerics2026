@@ -40,8 +40,8 @@ This notebook builds it up from scratch and uses it to run **TEBD** (time-evolvi
 """
 
 # ╔═╡ 5a4c9d32-422f-4459-ad6b-bee40fe3d6eb
-fig(name) = HTML(string("<div style=\"text-align:center;margin:0.6em 0\">",
-		read(joinpath(@__DIR__, "mps_tebd", name), String), "</div>"))
+fig(name) = PlutoUI.Resource(string("https://raw.githubusercontent.com/lkdvos/QNumerics2026/main/notebooks/mps_tebd/", name),
+		:style => "display:block; margin:0.6em auto; max-width:100%")
 
 # ╔═╡ f85f7446-0b61-44de-b381-926c9d4f20c6
 md"""
@@ -140,11 +140,10 @@ The bond dimension controls how much entanglement the MPS can hold. Across the c
 ``i`` the exact Schmidt rank is at most ``2^{\min(i,\,N-i)}``, so when we build a random MPS
 with maximum bond dimension ``D`` we cap each bond by ``\min\!\big(D,\,2^{\min(i,N-i)}\big)``.
 
-Use the sliders to set the system size and the bond dimension (keep ``N`` modest — the dense
-checks later cost ``2^N``):
+Use the sliders to set the system size and the bond dimension :
 
 - `N` = $(@bind N PlutoUI.Slider(2:100; default = 8, show_value = true))
-- `D` = $(@bind D PlutoUI.Slider(1:16; default = 8, show_value = true))
+- `D` = $(@bind D PlutoUI.Slider(1:32; default = 8, show_value = true))
 """
 
 # ╔═╡ e728551f-63b2-4490-90dc-659c38820491
@@ -429,6 +428,9 @@ F(\phi,\psi)=|\langle\phi|\psi\rangle| / (\lVert\phi\rVert\,\lVert\psi\rVert)
 ```
 """
 
+# ╔═╡ fcbaf6e6-6312-4930-a9b3-726640737ede
+fidelity(ϕ, ψ) = abs(dot(ϕ, ψ)) / (norm(ϕ) * norm(ψ))
+
 # ╔═╡ 0bb47e71-45b7-499e-89ae-8b0b93d37423
 function apply_gate_demo(ψ0::MPS, b, g; trunc)
     # apply g across bond b, truncate, return fresh MPS
@@ -458,8 +460,7 @@ gauge_demo = let b = N ÷ 2
     end
     gauged = apply_gate_demo(ψ0, b, G; trunc = truncrank(D))       # truncate in mixed-canonical gauge
 
-    fid(a, c) = abs(dot(a, c)) / (norm(a) * norm(c))
-    (; F_ungauged = fid(ungauged, exact), F_gauged = fid(gauged, exact), F_between = fid(ungauged, gauged))
+    (; F_ungauged = fidelity(ungauged, exact), F_gauged = fidelity(gauged, exact), F_between = fidelity(ungauged, gauged))
 end
 
 # ╔═╡ b2dfaf1e-024c-48ae-93d0-59ce6048fd1b
@@ -637,11 +638,11 @@ end
 Apply the Trotterized circuit defined by `gates_half` in Strang order, using local truncation scheme `trunc`.
 """
 function trotter_step!(ψ::MPS, gates_half; trunc)
-    # forward sweep: centre rides 1 → N
+    # forward sweep: center rides 1 → N
 
-    # backward sweep: centre rides N → 1
+    # backward sweep: center rides N → 1
 
-    # imaginary time shrinks the norm!!
+    # warning: imaginary time shrinks the norm!!
 
     error("hands-on")
     return ψ
@@ -689,7 +690,7 @@ let N = 8
         reached with a bond-dimension ``$(D_tebd)`` state instead of the full ``2^{$(N)}`` vector.
         """)
     catch
-        md"""!!! warning "Not yet"
+        md"""!!! warning "Not yet implemented"
             Implement the hands-on functions above (`apply_gate2!`, `canonicalize!`, `trotterize`,
             `trotter_step!`, `tebd_groundstate`), and this cell will compare the TEBD energy against the
             exact dense ``E_0``."""
@@ -2731,6 +2732,7 @@ version = "4.1.0+0"
 # ╟─caf9fe65-9d73-451b-ac94-72857ed84171
 # ╠═9e952ac2-7588-4508-8609-f5e805acf7ae
 # ╟─51f6c497-2d0d-4a92-94b8-abfbb2be7ceb
+# ╠═fcbaf6e6-6312-4930-a9b3-726640737ede
 # ╠═0bb47e71-45b7-499e-89ae-8b0b93d37423
 # ╠═315e62ff-cc5f-45c9-a3ec-1f051fbc13cf
 # ╟─b2dfaf1e-024c-48ae-93d0-59ce6048fd1b
@@ -2748,7 +2750,7 @@ version = "4.1.0+0"
 # ╠═ae9fd9be-c5ef-4da1-ac87-c615f8be14a4
 # ╠═e17a6b67-2f66-4019-a672-5d8d1d70af0d
 # ╟─7ae1b166-f42f-4851-8046-c9cd18ec5484
-# ╠═46722b4e-7f85-4c8a-962a-d5d6a92380b7
+# ╟─46722b4e-7f85-4c8a-962a-d5d6a92380b7
 # ╟─de354344-8cc5-4bc7-b65a-d701cea9b942
 # ╠═1d38d186-f3f2-4a29-8632-96e944040c24
 # ╠═daf475cb-978b-45d0-8e32-a4c94900bf5d

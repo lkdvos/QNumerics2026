@@ -24,6 +24,9 @@ begin
 	import LinearAlgebra as LA
 end
 
+# ╔═╡ ed930ad2-b2e1-4a11-b323-a543545a913e
+PlutoUI.TableOfContents()
+
 # ╔═╡ bd9655c7-bd55-48a1-b57c-fd78d38709d1
 md"""
 # Symmetries in tensor networks
@@ -33,15 +36,7 @@ Hilbert space as a featureless ``\mathbb{C}^d``. But the Hamiltonians we care ab
 **conserve something**: a parity, a particle number, a total spin. This notebook is about what that
 conservation *buys* us, and how it shows up in the tensors themselves.
 
-The thread runs from physics, to bookkeeping, to code:
-
-1. **Symmetry in quantum mechanics** — a conserved quantity commutes with ``H`` and forces it into **block-diagonal** form.
-2. **The simplest example: ``\mathbb{Z}_2`` in the Ising model** — diagonalizing the parity ``\prod_i X_i`` splits the Hilbert space into an *even* and an *odd* sector.
-3. **From operators to tensors** — a single ``Z`` is *charge-odd* (not a symmetric tensor); only ``Z\otimes Z`` is. The bond must carry the charge.
-4. **TensorKit does the bookkeeping** — `GradedSpace` fuses charges and stores only the allowed blocks, automatically.
-5. **Symmetric DMRG** — copy the DMRG code *verbatim*; change **only the spaces**. Watch it get faster.
-6. **The symmetric vs. the broken phase** — and how spontaneous symmetry breaking manifests in a *symmetric* MPS.
-7. **Beyond ``\mathbb{Z}_2``** — fermions (Hubbard) and a non-abelian symmetry (``SU(2)`` Heisenberg), briefly.
+The thread runs from physics, to bookkeeping, to code — see the table of contents for the outline.
 """
 
 # ╔═╡ 8259538e-b84a-4ab4-bc59-2448c192f839
@@ -2669,6 +2664,7 @@ version = "4.1.0+0"
 
 # ╔═╡ Cell order:
 # ╠═fc979269-767d-4ecc-ab65-8258ee50be53
+# ╠═ed930ad2-b2e1-4a11-b323-a543545a913e
 # ╠═bd9655c7-bd55-48a1-b57c-fd78d38709d1
 # ╟─8259538e-b84a-4ab4-bc59-2448c192f839
 # ╟─f8de9d1c-1ecc-4c60-80f3-b0166a11f115

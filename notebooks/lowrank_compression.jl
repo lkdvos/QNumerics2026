@@ -19,6 +19,9 @@ end
 # ╔═╡ 3c6e3f7b-48d7-4744-8111-a2adb2dc492a
 using LinearAlgebra, Random, TestImages, ImageCore, CairoMakie, PlutoUI
 
+# ╔═╡ d62c4a2c-d5a9-474c-acfb-7ce050558c21
+PlutoUI.TableOfContents()
+
 # ╔═╡ b034e8fb-4adc-4056-a1c8-a476cfc81441
 md"""
 # Low-rank factorization: compressing data with the SVD
@@ -2027,6 +2030,7 @@ version = "4.1.0+0"
 # ╔═╡ Cell order:
 # ╟─b034e8fb-4adc-4056-a1c8-a476cfc81441
 # ╠═3c6e3f7b-48d7-4744-8111-a2adb2dc492a
+# ╠═d62c4a2c-d5a9-474c-acfb-7ce050558c21
 # ╟─289bfeca-0694-4c45-bd6b-6177f93ae17e
 # ╠═1c895c71-03b7-4057-97ad-170e8135a8e5
 # ╟─c6146188-691a-448d-b44e-3db733f04ea1

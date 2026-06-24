@@ -22,6 +22,9 @@ begin
 	import LinearAlgebra: LinearAlgebra, dot, norm, svdvals
 end
 
+# ╔═╡ a513cecf-307c-4fce-bab9-6d0c2f44b971
+PlutoUI.TableOfContents()
+
 # ╔═╡ 26c8b471-4e00-44a0-99f2-560d8d4737e8
 md"""
 # DMRG: the density-matrix renormalization group
@@ -32,12 +35,7 @@ it treats the ground state as a **variational problem** over MPS of fixed bond d
 it *site by site*, each local step landing on the exact local optimum. A couple of sweeps and it is
 done.
 
-This notebook builds DMRG from scratch on the same TensorKit primitives:
-
-1. **History & background** — where DMRG comes from and why it is the modern view
-2. **The MPO** — writing a Hamiltonian as a chain of rank-4 tensors (a finite-state machine)
-3. **DMRG as alternating least squares** — minimization ⟶ local eigenvalue problem ⟶ sweeping
-4. **The payoff** — the same ``E_0`` as TEBD, in a handful of sweeps, on the transverse-field Ising model
+This notebook builds DMRG from scratch on the same TensorKit primitives — see the table of contents for the outline.
 """
 
 # ╔═╡ 732b7211-93ab-4a9f-b01a-0ad81634c0bd
@@ -66,8 +64,8 @@ it hit the TEBD energy ``E_0`` in *two sweeps*.
 """
 
 # ╔═╡ 9476f5c7-b396-4afc-9930-0ca1f816b09d
-fig(name) = HTML(string("<div style=\"text-align:center;margin:0.6em 0\">",
-		read(joinpath(@__DIR__, "dmrg", name), String), "</div>"))
+fig(name) = PlutoUI.Resource(string("https://raw.githubusercontent.com/lkdvos/QNumerics2026/main/notebooks/dmrg/", name),
+		:style => "display:block; margin:0.6em auto; max-width:100%")
 
 # ╔═╡ 9298265f-b7ab-4dff-b126-fe05dc399223
 md"""
@@ -2730,6 +2728,7 @@ version = "4.1.0+0"
 
 # ╔═╡ Cell order:
 # ╠═ea8eb5d3-808d-47ad-bb73-c8cc213833c5
+# ╠═a513cecf-307c-4fce-bab9-6d0c2f44b971
 # ╟─26c8b471-4e00-44a0-99f2-560d8d4737e8
 # ╟─732b7211-93ab-4a9f-b01a-0ad81634c0bd
 # ╟─9476f5c7-b396-4afc-9930-0ca1f816b09d

@@ -26,21 +26,18 @@ md"""
 Tensor networks are built from one object, repeated and wired together: the **multi-linear map between vector spaces**.
 In TensorKit.jl that object is a `TensorMap`, and this notebook introduces it from the ground up.
 
-We work through the primitives in order:
-
-1. **Spaces & `TensorMap`s** — vector spaces, vectors, linear maps, and tensors
-2. **Index manipulation** — permuting and repartitioning legs (matricization)
-3. **Contraction** — the `@tensor` macro, the working language
-4. **Factorizations** — SVD and friends, with truncation
-5. a **transverse-field Ising** combining everything together
+We work through the primitives in order — see the table of contents for the outline.
 """
 
 # ╔═╡ 1ea2749b-929d-4337-a018-2dafa6cbcf78
 # fig("legend.svg")
 
+# ╔═╡ c8084d93-64cb-4369-8f0e-c60198f73595
+PlutoUI.TableOfContents()
+
 # ╔═╡ 7dd5af3d-93a0-4bc7-84d1-1833682f18cb
-fig(name) = HTML(string("<div style=\"text-align:center;margin:0.6em 0\">",
-		read(joinpath(@__DIR__, "tensor_primitives", name), String), "</div>"))
+fig(name) = PlutoUI.Resource(string("https://raw.githubusercontent.com/lkdvos/QNumerics2026/main/notebooks/tensor_primitives/", name),
+		:style => "display:block; margin:0.6em auto; max-width:100%")
 
 # ╔═╡ f8effa9e-f7dc-4214-84fd-24719ef6892f
 md"""
@@ -2823,6 +2820,7 @@ version = "4.1.0+0"
 # ╟─94e4d9d6-a9a2-439b-ac84-c21aabbcd386
 # ╟─1ea2749b-929d-4337-a018-2dafa6cbcf78
 # ╠═b2b11530-a563-4e8f-b54c-4a9c419a4725
+# ╠═c8084d93-64cb-4369-8f0e-c60198f73595
 # ╟─7dd5af3d-93a0-4bc7-84d1-1833682f18cb
 # ╟─f8effa9e-f7dc-4214-84fd-24719ef6892f
 # ╠═1cb13598-8c18-4050-97a7-8b44318131aa
